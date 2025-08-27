@@ -1,0 +1,527 @@
+import React, { useState, useCallback, useMemo } from 'react';
+import { Upload, Search, Filter, Network, AlertTriangle, Phone, Globe, Clock, Calendar, FileText, Shield, Download, Eye, EyeOff } from 'lucide-react';
+
+const IPDRAnalysisTool = () => {
+  const [uploadedData, setUploadedData] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterType, setFilterType] = useState('all');
+  const [selectedRecord, setSelectedRecord] = useState(null);
+  const [showSensitiveData, setShowSensitiveData] = useState(false);
+  const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [analysisResults, setAnalysisResults] = useState(null);
+
+  // Sample IPDR data structure for demonstration
+  const sampleIPDRData = [
+    {
+      id: 1,
+      timestamp: '2024-08-27T14:30:00Z',
+      aParty: '91XXXXXXXXXX',
+      bParty: '91YYYYYYYYYY',
+      aPartyIP: '192.168.1.100',
+      bPartyIP: '203.45.67.89',
+      callType: 'voice',
+      duration: 120,
+      location: 'Mumbai',
+      operator: 'Airtel',
+      suspiciousFlag: false,
+      dataUsage: 0
+    },
+    {
+      id: 2,
+      timestamp: '2024-08-27T23:45:00Z',
+      aParty: '91XXXXXXXXXX',
+      bParty: '91ZZZZZZZZZZ',
+      aPartyIP: '192.168.1.100',
+      bPartyIP: '198.51.100.42',
+      callType: 'data',
+      duration: 0,
+      location: 'Delhi',
+      operator: 'Jio',
+      suspiciousFlag: true,
+      dataUsage: 2048
+    },
+    {
+      id: 3,
+      timestamp: '2024-08-27T02:15:00Z',
+      aParty: '91YYYYYYYYYY',
+      bParty: '91XXXXXXXXXX',
+      aPartyIP: '203.45.67.89',
+      bPartyIP: '192.168.1.100',
+      callType: 'voice',
+      duration: 45,
+      location: 'Bangalore',
+      operator: 'Vi',
+      suspiciousFlag: true,
+      dataUsage: 0
+    },
+    {
+      id: 4,
+      timestamp: '2024-08-27T16:20:00Z',
+      aParty: '91ZZZZZZZZZZ',
+      bParty: '91AAAAAAAAAA',
+      aPartyIP: '198.51.100.42',
+      bPartyIP: '172.16.0.50',
+      callType: 'sms',
+      duration: 0,
+      location: 'Chennai',
+      operator: 'BSNL',
+      suspiciousFlag: false,
+      dataUsage: 0
+    }
+  ];
+
+  const [currentData, setCurrentData] = useState(sampleIPDRData);
+
+  const maskSensitiveData = (data) => {
+    if (showSensitiveData) return data;
+    
+    if (typeof data === 'string' && data.length > 8) {
+      return data.slice(0, 4) + 'X'.repeat(data.length - 8) + data.slice(-4);
+    }
+    return data;
+  };
+
+  const handleFileUpload = useCallback((event) => {
+    const file = event.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          // Simple CSV parsing simulation
+          const text = e.target.result;
+          const lines = text.split('\n');
+          const headers = lines[0].split(',');
+          const data = lines.slice(1).map((line, index) => {
+            const values = line.split(',');
+            return {
+              id: index + 1,
+              timestamp: values[0] || new Date().toISOString(),
+              aParty: values[1] || '',
+              bParty: values[2] || '',
+              aPartyIP: values[3] || '',
+              bPartyIP: values[4] || '',
+              callType: values[5] || 'voice',
+              duration: parseInt(values[6]) || 0,
+              location: values[7] || '',
+              operator: values[8] || '',
+              suspiciousFlag: Math.random() > 0.7,
+              dataUsage: parseInt(values[9]) || 0
+            };
+          });
+          setUploadedData(data);
+          setCurrentData(data);
+        } catch (error) {
+          alert('Error parsing file. Please ensure it\'s a valid CSV format.');
+        }
+      };
+      reader.readAsText(file);
+    }
+  }, []);
+
+  const analyzePatterns = useCallback(() => {
+    const analysis = {
+      totalRecords: currentData.length,
+      uniqueAParties: new Set(currentData.map(r => r.aParty)).size,
+      uniqueBParties: new Set(currentData.map(r => r.bParty)).size,
+      suspiciousRecords: currentData.filter(r => r.suspiciousFlag).length,
+      nightTimeCalls: currentData.filter(r => {
+        const hour = new Date(r.timestamp).getHours();
+        return hour >= 22 || hour <= 6;
+      }).length,
+      shortCalls: currentData.filter(r => r.duration > 0 && r.duration < 30).length,
+      topConnections: {}
+    };
+
+    // Find most connected numbers
+    const connections = {};
+    currentData.forEach(record => {
+      const key = `${record.aParty}-${record.bParty}`;
+      connections[key] = (connections[key] || 0) + 1;
+    });
+    
+    analysis.topConnections = Object.entries(connections)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 5)
+      .map(([key, count]) => {
+        const [aParty, bParty] = key.split('-');
+        return { aParty, bParty, count };
+      });
+
+    setAnalysisResults(analysis);
+  }, [currentData]);
+
+  const filteredData = useMemo(() => {
+    let filtered = currentData;
+
+    // Apply search filter
+    if (searchQuery) {
+      filtered = filtered.filter(record => 
+        record.aParty.includes(searchQuery) ||
+        record.bParty.includes(searchQuery) ||
+        record.aPartyIP.includes(searchQuery) ||
+        record.bPartyIP.includes(searchQuery)
+      );
+    }
+
+    // Apply type filter
+    if (filterType !== 'all') {
+      if (filterType === 'suspicious') {
+        filtered = filtered.filter(record => record.suspiciousFlag);
+      } else {
+        filtered = filtered.filter(record => record.callType === filterType);
+      }
+    }
+
+    // Apply date range filter
+    if (dateRange.start && dateRange.end) {
+      filtered = filtered.filter(record => {
+        const recordDate = new Date(record.timestamp);
+        const startDate = new Date(dateRange.start);
+        const endDate = new Date(dateRange.end);
+        return recordDate >= startDate && recordDate <= endDate;
+      });
+    }
+
+    return filtered;
+  }, [currentData, searchQuery, filterType, dateRange]);
+
+  const exportResults = () => {
+    const csvContent = [
+      ['Timestamp', 'A-Party', 'B-Party', 'A-Party IP', 'B-Party IP', 'Call Type', 'Duration', 'Location', 'Operator', 'Suspicious'].join(','),
+      ...filteredData.map(record => [
+        record.timestamp,
+        record.aParty,
+        record.bParty,
+        record.aPartyIP,
+        record.bPartyIP,
+        record.callType,
+        record.duration,
+        record.location,
+        record.operator,
+        record.suspiciousFlag ? 'Yes' : 'No'
+      ].join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'ipdr_analysis_results.csv';
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-900 via-slate-800 to-slate-900 p-6">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl p-6 mb-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <Shield className="w-8 h-8 text-blue-400" />
+              <h1 className="text-3xl font-bold text-white">IPDR Analysis Tool</h1>
+              <span className="bg-red-500 text-white px-2 py-1 rounded text-sm">CLASSIFIED</span>
+            </div>
+            <button
+              onClick={() => setShowSensitiveData(!showSensitiveData)}
+              className="flex items-center space-x-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg transition-colors"
+            >
+              {showSensitiveData ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              <span>{showSensitiveData ? 'Hide' : 'Show'} Sensitive Data</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Upload Section */}
+        <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl p-6 mb-6">
+          <h2 className="text-xl font-semibold text-white mb-4 flex items-center">
+            <Upload className="w-5 h-5 mr-2 text-blue-400" />
+            Data Upload & Processing
+          </h2>
+          <div className="flex items-center space-x-4">
+            <input
+              type="file"
+              accept=".csv,.txt,.json"
+              onChange={handleFileUpload}
+              className="bg-slate-700 text-white px-4 py-2 rounded-lg file:bg-blue-600 file:border-0 file:text-white file:px-4 file:py-2 file:rounded file:mr-4"
+            />
+            <button
+              onClick={analyzePatterns}
+              className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition-colors flex items-center"
+            >
+              <Network className="w-4 h-4 mr-2" />
+              Analyze Patterns
+            </button>
+            <button
+              onClick={exportResults}
+              className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-lg transition-colors flex items-center"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Export Results
+            </button>
+          </div>
+          <p className="text-slate-400 mt-2 text-sm">
+            Supported formats: CSV, TXT, JSON. Sample data is pre-loaded for demonstration.
+          </p>
+        </div>
+
+        {/* Search and Filter Controls */}
+        <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl p-6 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search numbers/IPs..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:border-blue-400 focus:outline-none"
+              />
+            </div>
+            <select
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value)}
+              className="px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:border-blue-400 focus:outline-none"
+            >
+              <option value="all">All Records</option>
+              <option value="voice">Voice Calls</option>
+              <option value="data">Data Sessions</option>
+              <option value="sms">SMS</option>
+              <option value="suspicious">Suspicious Only</option>
+            </select>
+            <input
+              type="date"
+              value={dateRange.start}
+              onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+              className="px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:border-blue-400 focus:outline-none"
+            />
+            <input
+              type="date"
+              value={dateRange.end}
+              onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+              className="px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:border-blue-400 focus:outline-none"
+            />
+          </div>
+        </div>
+
+        {/* Analysis Results */}
+        {analysisResults && (
+          <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl p-6 mb-6">
+            <h2 className="text-xl font-semibold text-white mb-4 flex items-center">
+              <AlertTriangle className="w-5 h-5 mr-2 text-orange-400" />
+              Pattern Analysis Results
+            </h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <div className="bg-slate-700 p-4 rounded-lg">
+                <div className="text-2xl font-bold text-blue-400">{analysisResults.totalRecords}</div>
+                <div className="text-slate-400 text-sm">Total Records</div>
+              </div>
+              <div className="bg-slate-700 p-4 rounded-lg">
+                <div className="text-2xl font-bold text-green-400">{analysisResults.uniqueAParties}</div>
+                <div className="text-slate-400 text-sm">Unique A-Parties</div>
+              </div>
+              <div className="bg-slate-700 p-4 rounded-lg">
+                <div className="text-2xl font-bold text-yellow-400">{analysisResults.uniqueBParties}</div>
+                <div className="text-slate-400 text-sm">Unique B-Parties</div>
+              </div>
+              <div className="bg-slate-700 p-4 rounded-lg">
+                <div className="text-2xl font-bold text-red-400">{analysisResults.suspiciousRecords}</div>
+                <div className="text-slate-400 text-sm">Suspicious Records</div>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-slate-700 p-4 rounded-lg">
+                <h3 className="text-lg font-semibold text-white mb-3">Top Connections</h3>
+                {analysisResults.topConnections.map((conn, index) => (
+                  <div key={index} className="flex justify-between items-center py-2 border-b border-slate-600 last:border-0">
+                    <span className="text-slate-300">
+                      {maskSensitiveData(conn.aParty)} ↔ {maskSensitiveData(conn.bParty)}
+                    </span>
+                    <span className="bg-blue-600 text-white px-2 py-1 rounded text-sm">{conn.count}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="bg-slate-700 p-4 rounded-lg">
+                <h3 className="text-lg font-semibold text-white mb-3">Risk Indicators</h3>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-slate-300">Night-time Communications</span>
+                    <span className="text-orange-400">{analysisResults.nightTimeCalls}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-300">Short Duration Calls</span>
+                    <span className="text-yellow-400">{analysisResults.shortCalls}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-300">Flagged Records</span>
+                    <span className="text-red-400">{analysisResults.suspiciousRecords}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Main Data Table */}
+        <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl p-6">
+          <h2 className="text-xl font-semibold text-white mb-4 flex items-center">
+            <FileText className="w-5 h-5 mr-2 text-green-400" />
+            IPDR Records ({filteredData.length})
+          </h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-600">
+                  <th className="text-left text-slate-300 p-3">Timestamp</th>
+                  <th className="text-left text-slate-300 p-3">A-Party</th>
+                  <th className="text-left text-slate-300 p-3">B-Party</th>
+                  <th className="text-left text-slate-300 p-3">A-Party IP</th>
+                  <th className="text-left text-slate-300 p-3">B-Party IP</th>
+                  <th className="text-left text-slate-300 p-3">Type</th>
+                  <th className="text-left text-slate-300 p-3">Duration</th>
+                  <th className="text-left text-slate-300 p-3">Location</th>
+                  <th className="text-left text-slate-300 p-3">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredData.map((record) => (
+                  <tr
+                    key={record.id}
+                    className={`border-b border-slate-700 hover:bg-slate-700/30 transition-colors cursor-pointer ${
+                      record.suspiciousFlag ? 'bg-red-900/20' : ''
+                    }`}
+                    onClick={() => setSelectedRecord(record)}
+                  >
+                    <td className="p-3 text-slate-300">
+                      <div className="flex items-center">
+                        <Clock className="w-4 h-4 mr-2 text-blue-400" />
+                        {new Date(record.timestamp).toLocaleString()}
+                      </div>
+                    </td>
+                    <td className="p-3 text-slate-300">
+                      <div className="flex items-center">
+                        <Phone className="w-4 h-4 mr-2 text-green-400" />
+                        {maskSensitiveData(record.aParty)}
+                      </div>
+                    </td>
+                    <td className="p-3 text-slate-300">
+                      <div className="flex items-center">
+                        <Phone className="w-4 h-4 mr-2 text-yellow-400" />
+                        {maskSensitiveData(record.bParty)}
+                      </div>
+                    </td>
+                    <td className="p-3 text-slate-300">
+                      <div className="flex items-center">
+                        <Globe className="w-4 h-4 mr-2 text-blue-400" />
+                        {maskSensitiveData(record.aPartyIP)}
+                      </div>
+                    </td>
+                    <td className="p-3 text-slate-300">
+                      <div className="flex items-center">
+                        <Globe className="w-4 h-4 mr-2 text-purple-400" />
+                        {maskSensitiveData(record.bPartyIP)}
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      <span className={`px-2 py-1 rounded text-xs ${
+                        record.callType === 'voice' ? 'bg-green-600' :
+                        record.callType === 'data' ? 'bg-blue-600' : 'bg-yellow-600'
+                      } text-white`}>
+                        {record.callType.toUpperCase()}
+                      </span>
+                    </td>
+                    <td className="p-3 text-slate-300">
+                      {record.duration > 0 ? `${record.duration}s` : '-'}
+                    </td>
+                    <td className="p-3 text-slate-300">{record.location}</td>
+                    <td className="p-3">
+                      {record.suspiciousFlag && (
+                        <div className="flex items-center">
+                          <AlertTriangle className="w-4 h-4 text-red-400 mr-1" />
+                          <span className="text-red-400 text-xs">FLAGGED</span>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Record Details Modal */}
+        {selectedRecord && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 max-w-2xl w-full">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl font-semibold text-white">Record Details</h3>
+                <button
+                  onClick={() => setSelectedRecord(null)}
+                  className="text-slate-400 hover:text-white"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-slate-400 text-sm">A-Party (Initiator)</label>
+                    <div className="text-white font-mono">{maskSensitiveData(selectedRecord.aParty)}</div>
+                  </div>
+                  <div>
+                    <label className="text-slate-400 text-sm">A-Party IP</label>
+                    <div className="text-white font-mono">{maskSensitiveData(selectedRecord.aPartyIP)}</div>
+                  </div>
+                  <div>
+                    <label className="text-slate-400 text-sm">Call Type</label>
+                    <div className="text-white">{selectedRecord.callType}</div>
+                  </div>
+                  <div>
+                    <label className="text-slate-400 text-sm">Operator</label>
+                    <div className="text-white">{selectedRecord.operator}</div>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-slate-400 text-sm">B-Party (Recipient)</label>
+                    <div className="text-white font-mono">{maskSensitiveData(selectedRecord.bParty)}</div>
+                  </div>
+                  <div>
+                    <label className="text-slate-400 text-sm">B-Party IP</label>
+                    <div className="text-white font-mono">{maskSensitiveData(selectedRecord.bPartyIP)}</div>
+                  </div>
+                  <div>
+                    <label className="text-slate-400 text-sm">Duration</label>
+                    <div className="text-white">{selectedRecord.duration > 0 ? `${selectedRecord.duration} seconds` : 'N/A'}</div>
+                  </div>
+                  <div>
+                    <label className="text-slate-400 text-sm">Location</label>
+                    <div className="text-white">{selectedRecord.location}</div>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4 pt-4 border-t border-slate-700">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="text-slate-400 text-sm">Timestamp</label>
+                    <div className="text-white">{new Date(selectedRecord.timestamp).toLocaleString()}</div>
+                  </div>
+                  {selectedRecord.suspiciousFlag && (
+                    <div className="bg-red-900/30 border border-red-600 rounded-lg px-3 py-2">
+                      <div className="flex items-center text-red-400">
+                        <AlertTriangle className="w-4 h-4 mr-2" />
+                        Suspicious Activity Detected
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default IPDRAnalysisTool;
